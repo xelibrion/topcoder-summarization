@@ -1,5 +1,11 @@
 FROM python:3.7-slim
 
-ADD pkg/ /
+WORKDIR /app
 
-CMD /test.sh
+ADD pkg/ /
+ADD src /app
+ADD requirements.txt /
+
+RUN pip install -r /requirements.txt
+
+CMD /test.sh /data/test/ val_summary.txt test_summary.txt
