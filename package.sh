@@ -2,7 +2,7 @@
 set -e
 
 rm -rf .dist
-rm submission.zip
+rm -f submission.zip
 
 docker build . -t topcoder-summarization
 docker run -it --rm -v $PWD/data:/data topcoder-summarization
