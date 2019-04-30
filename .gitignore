@@ -6,3 +6,4 @@ flycheck_*
 /scorer/
 /submission.zip
 *.gz
+__pycache__

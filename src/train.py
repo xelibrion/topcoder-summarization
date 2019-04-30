@@ -12,9 +12,8 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 
-from summarizer_model import Summarizer
-
-from meters import AverageMeter
+from nnet import Summarizer
+from nnet.meters import AverageMeter
 
 MODEL_PATH = 'summarizer_model.pt'
 
