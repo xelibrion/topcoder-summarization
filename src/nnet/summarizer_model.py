@@ -16,12 +16,18 @@ class Summarizer(nn.Module):
     def load_cp(self, pt):
         self.load_state_dict(pt['model'], strict=True)
 
-    def forward(self, x, segments, clss, mask, mask_cls):
-        encoded_input, _ = self.bert(x, token_type_ids=segments, attention_mask=mask)
-        sents_vec = encoded_input[torch.arange(encoded_input.size(0)).unsqueeze(1), clss]
-        sents_vec = sents_vec * mask_cls[:, :, None].float()
-        sent_scores = self.decoder(sents_vec, mask_cls).squeeze(-1)
-        return sent_scores, mask_cls
+    def forward(self, input_ids, attention_mask, segments, cls_ids, cls_mask):
+        encoded_input, _ = self.bert(
+            input_ids,
+            token_type_ids=segments,
+            attention_mask=attention_mask,
+            output_all_encoded_layers=False,
+        )
+        sents_vec = encoded_input[torch.arange(encoded_input.size(0)).
+                                  unsqueeze(1), cls_ids]
+        sents_vec = sents_vec * cls_mask[:, :, None].float()
+        sent_scores = self.decoder(sents_vec, cls_mask).squeeze(-1)
+        return sent_scores, cls_mask
 
 
 class Classifier(nn.Module):

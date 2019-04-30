@@ -58,30 +58,29 @@ def train_epoch(model, iterator, optimizer, criterion):
         for batch in iterator:
             optimizer.zero_grad()
 
-            src, text_lengths = batch.text
-            trg = src
+            for idx, t in enumerate(batch):
+                batch[idx] = t.to(device)
 
-            output = model(src, text_lengths, trg)
+            input_ids, attention_mask, segments_ids, cls_ids, cls_mask, labels = batch
 
-            # trg = [trg sent len, batch size]
-            # output = [trg sent len, batch size, output dim]
-
-            output = output[1:].view(-1, output.shape[-1])
-            trg = trg[1:].view(-1)
+            output = model(input_ids, attention_mask, segments_ids, cls_ids, cls_mask)
+            sent_scores, out_cls_mask = output
 
             # trg = [(trg sent len - 1) * batch size]
             # output = [(trg sent len - 1) * batch size, output dim]
 
-            loss = criterion(output, trg)
-            loss.backward()
+            loss = criterion(sent_scores, labels)
+            loss = (loss * out_cls_mask.float()).sum()
+            (loss / loss.numel()).backward()
+
+            # loss = self.loss(sent_scores, labels.float())
+            # loss = (loss*mask.float()).sum()
+            # (loss/loss.numel()).backward()
 
             optimizer.step()
 
             loss_meter.update(loss.item())
-            tq.set_postfix(
-                loss='{:.3f}'.format(loss_meter.mavg),
-                PPL='{:.2f}'.format(math.exp(loss_meter.mavg)),
-            )
+            tq.set_postfix(loss='{:.3f}'.format(loss_meter.mavg), )
             tq.update()
 
             epoch_loss += loss.item()
@@ -126,7 +125,7 @@ def evaluate(model, iterator, criterion):
 def compose_model():
     model = Summarizer()
     print(f'The model has {count_parameters(model):,} trainable parameters')
-    return model, nn.CrossEntropyLoss()
+    return model.to(device), nn.BCELoss(reduction='none')
 
 
 def load_data(dataset_path, batch_size):
@@ -152,8 +151,8 @@ def load_data(dataset_path, batch_size):
         orient='records',
     )
 
-    train_text, train_oracle = train_text.head(10), train_oracle.head(10)
-    val_text, val_oracle = val_text.head(10), val_oracle.head(10)
+    train_text, train_oracle = train_text.head(1000), train_oracle.head(1000)
+    val_text, val_oracle = val_text.head(1000), val_oracle.head(1000)
 
     train_iterator = DataLoader(
         SentencesDataset(
