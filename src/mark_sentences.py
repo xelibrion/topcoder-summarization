@@ -149,7 +149,7 @@ def perform_selection(input_tuple):
 
 def initializer():
     global nlp
-    nlp = spacy.load('en_core_web_sm')
+    nlp = spacy.load('en_core_web_lg')
 
 
 def process(total_items, article_id, abstracts, articles):
