@@ -201,6 +201,7 @@ def main():
         'article_id',
         'selected_sentences_ids',
     ])
+    df.sort_values('article_id', inplace=True)
     df.to_json(
         rel_path('../data/selected_sentences.jsonl'),
         lines=True,

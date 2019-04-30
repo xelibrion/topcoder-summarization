@@ -67,6 +67,7 @@ def main():
                           'abstract_sentences',
                           'article_sentences',
                       ])
+    df.sort_values('article_id', inplace=True)
     df.to_json(
         rel_path('../data/train_sentences.jsonl'),
         lines=True,

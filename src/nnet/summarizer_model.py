@@ -7,11 +7,11 @@ from pytorch_pretrained_bert import BertModel
 class Summarizer(nn.Module):
     def __init__(self):
         super(Summarizer, self).__init__()
-        self.bert = BertModel.from_pretrained('bert_base_uncased')
+        self.bert = BertModel.from_pretrained('bert-base-uncased')
         self.decoder = Classifier(self.bert.config.hidden_size)
 
         for p in self.decoder.parameters():
-            nn.init.xavier_uniform_(p)
+            nn.init.uniform_(p, -0.1, 0.1)
 
     def load_cp(self, pt):
         self.load_state_dict(pt['model'], strict=True)

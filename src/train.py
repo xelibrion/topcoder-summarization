@@ -7,13 +7,21 @@ import math
 import time
 import argparse
 
+import pandas as pd
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
+
 from tqdm import tqdm
 
 from nnet import Summarizer
 from nnet.meters import AverageMeter
+from nnet.dataset import SentencesDataset
+
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 MODEL_PATH = 'summarizer_model.pt'
 
@@ -37,7 +45,7 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def train_epoch(model, iterator, optimizer, criterion, clip):
+def train_epoch(model, iterator, optimizer, criterion):
 
     loss_meter = AverageMeter(int(len(iterator) / 10))
     model.train()
@@ -66,7 +74,7 @@ def train_epoch(model, iterator, optimizer, criterion, clip):
 
             loss = criterion(output, trg)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
+
             optimizer.step()
 
             loss_meter.update(loss.item())
@@ -115,45 +123,68 @@ def evaluate(model, iterator, criterion):
     return epoch_loss / len(iterator)
 
 
-def load_data(dataset_path, field):
-    fields = {'text': ('text', field)}
-
-    print(f"Loading data from '{dataset_path}'")
-
-    train_data, valid_data, test_data = TabularDataset.splits(path=dataset_path,
-                                                              train='train.jsonl',
-                                                              validation='val.jsonl',
-                                                              test='test.jsonl',
-                                                              format='json',
-                                                              fields=fields)
-
-    print(vars(train_data.examples[0]))
-
-    return train_data, valid_data, test_data
-
-
 def compose_model():
     model = Summarizer()
     print(f'The model has {count_parameters(model):,} trainable parameters')
     return model, nn.CrossEntropyLoss()
 
 
-def train(dataset_path, resume, lr):
-    TEXT = Field(
-        init_token='<sos>',
-        eos_token='<eos>',
-        lower=True,
+def load_data(dataset_path, batch_size):
+    train_text = pd.read_json(
+        os.path.join(dataset_path, 'train_text.jsonl'),
+        lines=True,
+        orient='records',
+    )
+    train_oracle = pd.read_json(
+        os.path.join(dataset_path, 'train_oracle.jsonl'),
+        lines=True,
+        orient='records',
     )
 
-    train_data, valid_data, test_data = load_data(dataset_path, TEXT)
-
-    train_iterator, valid_iterator, test_iterator = BucketIterator.splits(
-        (train_data, valid_data, test_data),
-        batch_size=h.BATCH_SIZE,
-        device=device,
-        sort_within_batch=True,
-        sort_key=lambda x: len(x.text),
+    val_text = pd.read_json(
+        os.path.join(dataset_path, 'val_text.jsonl'),
+        lines=True,
+        orient='records',
     )
+    val_oracle = pd.read_json(
+        os.path.join(dataset_path, 'val_oracle.jsonl'),
+        lines=True,
+        orient='records',
+    )
+
+    train_text, train_oracle = train_text.head(10), train_oracle.head(10)
+    val_text, val_oracle = val_text.head(10), val_oracle.head(10)
+
+    train_iterator = DataLoader(
+        SentencesDataset(
+            train_text['abstract_sentences'].tolist(),
+            train_text['article_sentences'].tolist(),
+            train_oracle['selected_sentences_ids'].tolist(),
+        ),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=12,
+        pin_memory=True,
+    )
+
+    val_iterator = DataLoader(
+        SentencesDataset(
+            val_text['abstract_sentences'].tolist(),
+            val_text['article_sentences'].tolist(),
+            val_oracle['selected_sentences_ids'].tolist(),
+        ),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+    )
+
+    return train_iterator, val_iterator
+
+
+def train(dataset_path, resume, lr, batch_size):
+
+    train_iterator, val_iterator = load_data(dataset_path, batch_size)
 
     model, criterion = compose_model()
     if resume:
@@ -163,27 +194,26 @@ def train(dataset_path, resume, lr):
 
     N_EPOCHS = 30
 
-    best_valid_loss = float('inf')
+    best_val_loss = float('inf')
 
     for epoch in range(N_EPOCHS):
 
         start_time = time.time()
 
-        train_loss = train_epoch(model, train_iterator, optimizer, criterion, h.CLIP)
-        valid_loss = evaluate(model, valid_iterator, criterion)
+        train_loss = train_epoch(model, train_iterator, optimizer, criterion)
+        val_loss = evaluate(model, val_iterator, criterion)
 
         end_time = time.time()
 
         epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-        if valid_loss < best_valid_loss:
-            best_valid_loss = valid_loss
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
             torch.save(model.state_dict(), MODEL_PATH)
 
         print(f'\nEpoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s')
         print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
-        print(
-            f'\t Val. Loss: {valid_loss:.3f} |  Val. PPL: {math.exp(valid_loss):7.3f}\n')
+        print(f'\t Val. Loss: {val_loss:.3f} |  Val. PPL: {math.exp(val_loss):7.3f}\n')
 
 
 def rel_path(path, anchor=None):
@@ -211,11 +241,21 @@ def main():
         type=float,
         default=1e-3,
     )
+    parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=12,
+    )
 
     args = parser.parse_args()
 
-    dataset = '../data/reviews_short' if args.sample else '../data/reviews'
-    train(rel_path(dataset), args.resume, args.lr)
+    dataset = '../train_data'
+    train(
+        rel_path(dataset),
+        args.resume,
+        args.lr,
+        args.batch_size,
+    )
 
 
 if __name__ == '__main__':
