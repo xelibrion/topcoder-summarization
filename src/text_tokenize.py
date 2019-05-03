@@ -25,6 +25,7 @@ JAVA_PARAMS = [
 
 @contextmanager
 def tempdir(path):
+    rmtree(path, ignore_errors=True)
     os.makedirs(path, exist_ok=True)
     yield path
     rmtree(path)
@@ -45,6 +46,11 @@ def main():
         type=str,
         help="",
     )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        default=False,
+    )
 
     args = parser.parse_args()
     classpath = os.path.join(os.path.expanduser(args.stanford_nlp_dir),
@@ -61,7 +67,7 @@ def main():
         with tempdir(rel_path(f'../data/tmp_{col}')) as working_dir:
             with open(rel_path(f'./{col}_tokens.jsonl'), 'w') as out_f:
 
-                process(working_dir, df[col], 5000)
+                process(working_dir, df[col], 5000, args.verbose)
                 for idx, tokens in read_results(working_dir):
                     result = json.dumps({
                         'index': idx,
@@ -72,7 +78,7 @@ def main():
                     out_f.write('\n')
 
 
-def process(working_dir, text_column, max_chunk_size=25000):
+def process(working_dir, text_column, max_chunk_size=25000, verbose=False):
     num_items = text_column.shape[0]
     num_chunks = max(1, int(num_items / max_chunk_size))
     print(f'Creating {num_chunks} chunks')
@@ -89,23 +95,24 @@ def process(working_dir, text_column, max_chunk_size=25000):
             header=False,
         )
 
-        subprocess.run(JAVA_PARAMS +
-                       [stanford_input_file, '-outputDirectory', working_dir])
+        process_args = JAVA_PARAMS + [
+            stanford_input_file, '-outputDirectory', working_dir
+        ]
+        subprocess.run(process_args, capture_output=not verbose)
 
 
 def read_results(working_dir):
     def numeric_sort(x):
         return int(x.split('.')[0])
 
-    for f in sorted(os.listdir(working_dir), key=numeric_sort):
-        if not f.endswith('.json'):
-            continue
+    files = sorted(os.listdir(working_dir), key=numeric_sort)
+    files = filter(lambda x: x.endswith('.json'), files)
 
-        print(f'Loading {f}...')
+    for f in tqdm(files, desc='Merging results'):
         with open(os.path.join(working_dir, f)) as in_f:
             payload = json.load(in_f)
 
-            for s in tqdm(payload['sentences']):
+            for s in payload['sentences']:
                 yield s['index'], [x['word'] for x in s['tokens']]
 
 
