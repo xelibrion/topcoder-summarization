@@ -31,9 +31,10 @@ def main():
     dest_file = os.path.join(os.path.dirname(current_file), '../data/unpacked.jsonl')
 
     with open(dest_file, 'w') as f:
-        for item in tqdm(unpack_strings(src_file)):
+        for idx, item in enumerate(tqdm(unpack_strings(src_file))):
             abstract, article = split_abstract_body(item)
             parsed = {
+                'article_id': idx,
                 'abstract': abstract,
                 'article': article,
             }

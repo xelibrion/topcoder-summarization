@@ -23,10 +23,11 @@ NUM_EXECUTORS = os.cpu_count()
 JARS = ['./stanford-corenlp-full-2018-10-05/stanford-corenlp-3.9.2-models.jar']
 
 spark = SparkSession.builder \
-                    .appName('02_tokenize') \
+                    .appName('spark_tokenize') \
                     .master(f'local[{NUM_EXECUTORS}]') \
                     .config('spark.jars', ','.join(JARS)) \
                     .config('spark.jars.packages', 'databricks:spark-corenlp:0.4.0-spark2.4-scala2.11') \
+                    .config('spark.driver.memory', '10G') \
                     .getOrCreate()
 
 df = spark.read.json(rel_path('../data/unpacked.jsonl'))
@@ -53,9 +54,7 @@ def abstract_to_sentences(abstract_series):
 
 abstract_to_sentences_udf = F.pandas_udf(abstract_to_sentences, 'array<string>')
 
-df = df.withColumn('article_id', F.monotonically_increasing_id())
-
-df = df.repartition(100) \
+df = df.repartition(50) \
     .withColumn('abstract_sentences', abstract_to_sentences_udf(col('abstract'))) \
     .withColumn('article_sentences', ssplit_udf(col('article'), spark)) \
     .cache()
@@ -76,10 +75,11 @@ def tokenize_sentence_list(df, column_name):
     )
     df_result = df_tmp.select(
         'article_id',
+        'sentence_seq',
         F.collect_list('sentence_tokens').over(windowSpec).alias('column_tokens'),
     )
-    return df_result.groupBy('article_id').agg(
-        F.first(col('column_tokens')).alias('column_tokens'), )
+    return df_result.groupby('article_id') \
+                    .agg(F.last('column_tokens').alias('column_tokens'))
 
 
 df_abstracts = tokenize_sentence_list(df, 'abstract_sentences') \
@@ -88,7 +88,8 @@ df_abstracts = tokenize_sentence_list(df, 'abstract_sentences') \
 df_articles = tokenize_sentence_list(df, 'article_sentences') \
     .withColumnRenamed('column_tokens', 'article_tokens').cache()
 
-df = df_abstracts.join(df_articles, on=['article_id'], how='inner')
+df = df_abstracts.join(df_articles, on=['article_id'], how='inner') \
+                 .orderBy('article_id')
 print(df.columns)
 
-df.write.json('./tokenized.jsonl')
+df.repartition(1).write.json('./tokenized.jsonl')
