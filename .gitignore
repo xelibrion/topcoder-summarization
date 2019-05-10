@@ -7,3 +7,4 @@ flycheck_*
 /submission.zip
 *.gz
 __pycache__
+/src/stanford-corenlp-full-*/

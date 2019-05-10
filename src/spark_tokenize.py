@@ -4,6 +4,7 @@
 # export JAVA_HOME=$(/usr/libexec/java_home -v 1.8)
 
 import os
+import argparse
 from pyspark.sql import SparkSession, Column
 from pyspark.sql.window import Window
 import pyspark.sql.functions as F
@@ -17,20 +18,6 @@ def rel_path(path, anchor=None):
     anchor_path = os.path.abspath(anchor)
     anchor_dir = os.path.dirname(anchor_path)
     return os.path.abspath(os.path.join(anchor_dir, path))
-
-
-NUM_EXECUTORS = os.cpu_count()
-JARS = ['./stanford-corenlp-full-2018-10-05/stanford-corenlp-3.9.2-models.jar']
-
-spark = SparkSession.builder \
-                    .appName('spark_tokenize') \
-                    .master(f'local[{NUM_EXECUTORS}]') \
-                    .config('spark.jars', ','.join(JARS)) \
-                    .config('spark.jars.packages', 'databricks:spark-corenlp:0.4.0-spark2.4-scala2.11') \
-                    .config('spark.driver.memory', '10G') \
-                    .getOrCreate()
-
-df = spark.read.json(rel_path('../data/unpacked.jsonl'))
 
 
 def ssplit_udf(col, spark):
@@ -52,15 +39,7 @@ def abstract_to_sentences(abstract_series):
     return abstract_series.apply(map_op)
 
 
-abstract_to_sentences_udf = F.pandas_udf(abstract_to_sentences, 'array<string>')
-
-df = df.repartition(50) \
-    .withColumn('abstract_sentences', abstract_to_sentences_udf(col('abstract'))) \
-    .withColumn('article_sentences', ssplit_udf(col('article'), spark)) \
-    .cache()
-
-
-def tokenize_sentence_list(df, column_name):
+def tokenize_sentence_list(df, column_name, spark):
     df_tmp = df.select(
         'article_id',
         F.explode(col(column_name)).alias('single_sentence'),
@@ -82,14 +61,51 @@ def tokenize_sentence_list(df, column_name):
                     .agg(F.last('column_tokens').alias('column_tokens'))
 
 
-df_abstracts = tokenize_sentence_list(df, 'abstract_sentences') \
-    .withColumnRenamed('column_tokens', 'abstract_tokens').cache()
+def run_task(standford_models_jar):
+    num_executors = os.cpu_count()
 
-df_articles = tokenize_sentence_list(df, 'article_sentences') \
-    .withColumnRenamed('column_tokens', 'article_tokens').cache()
+    spark = SparkSession.builder \
+                        .appName('spark_tokenize') \
+                        .master(f'local[{num_executors}]') \
+                        .config('spark.jars', standford_models_jar) \
+                        .config('spark.jars.packages', 'databricks:spark-corenlp:0.4.0-spark2.4-scala2.11') \
+                        .config('spark.driver.memory', '10G') \
+                        .getOrCreate()
 
-df = df_abstracts.join(df_articles, on=['article_id'], how='inner') \
-                 .orderBy('article_id')
-print(df.columns)
+    df = spark.read.json(rel_path('../data/unpacked.jsonl'))
 
-df.repartition(1).write.json('./tokenized.jsonl')
+    abstract_to_sentences_udf = F.pandas_udf(abstract_to_sentences, 'array<string>')
+
+    df = df.repartition(50) \
+           .withColumn('abstract_sentences', abstract_to_sentences_udf(col('abstract'))) \
+           .withColumn('article_sentences', ssplit_udf(col('article'), spark)) \
+           .cache()
+
+    df_abstracts = tokenize_sentence_list(df, 'abstract_sentences', spark) \
+        .withColumnRenamed('column_tokens', 'abstract_tokens').cache()
+
+    df_articles = tokenize_sentence_list(df, 'article_sentences', spark) \
+        .withColumnRenamed('column_tokens', 'article_tokens').cache()
+
+    df = df_abstracts.join(df_articles, on=['article_id'], how='inner') \
+                     .orderBy('article_id')
+    print(df.columns)
+
+    df.repartition(1).write.json(rel_path('../data/tokenized'))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument(
+        'stanford_nlp_dir',
+        type=str,
+        help="",
+    )
+    args = parser.parse_args()
+    stanford_files = os.listdir(os.path.expanduser(args.stanford_nlp_dir))
+    standford_models_jar = [x for x in stanford_files if x.endswith('models.jar')][0]
+    run_task(standford_models_jar)
+
+
+if __name__ == '__main__':
+    main()
