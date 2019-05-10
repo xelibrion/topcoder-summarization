@@ -84,18 +84,13 @@ def main():
             df['selected_sentences_ids'],
             label,
         )
-        r_df = pd.DataFrame(
-            result,
-            columns=[
-                'src_subtoken_idxs',
-                'labels',
-                'segments_ids',
-                'cls_ids',
-                'src_txt',
-                'tgt_txt',
-            ],
+        r_df = pd.DataFrame(result)
+        r_df.dropna(inplace=True)
+        r_df.to_json(
+            rel_path(f'../data/ready/{label.lower()}.jsonl'),
+            lines=True,
+            orient='records',
         )
-        r_df.to_parquet(rel_path(f'../data/ready/{label.lower()}.parquet'))
 
 
 if __name__ == '__main__':

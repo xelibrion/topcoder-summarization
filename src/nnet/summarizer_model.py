@@ -23,9 +23,9 @@ class Summarizer(nn.Module):
             attention_mask=attention_mask,
             output_all_encoded_layers=False,
         )
-        sents_vec = encoded_input[torch.arange(encoded_input.size(0)).
-                                  unsqueeze(1), cls_ids]
-        sents_vec = sents_vec * cls_mask[:, :, None].float()
+        indexer = torch.arange(encoded_input.size(0)).unsqueeze(1)
+        sents_vec = encoded_input[indexer, cls_ids]
+        sents_vec = sents_vec * cls_mask.float().unsqueeze(2)
         sent_scores = self.decoder(sents_vec, cls_mask).squeeze(-1)
         return sent_scores, cls_mask
 

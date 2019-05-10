@@ -7,6 +7,7 @@ import math
 import time
 import argparse
 
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
@@ -60,9 +61,13 @@ def train_epoch(model, iterator, optimizer, criterion):
                 batch[idx] = t.to(device)
 
             input_ids, attention_mask, segments_ids, cls_ids, cls_mask, labels = batch
+            # labels = [batch_size x 512]
 
             output = model(input_ids, attention_mask, segments_ids, cls_ids, cls_mask)
             sent_scores, out_cls_mask = output
+
+            # sent_scores = [batch_size x 512]
+            # out_cls_mask = [batch_size x 512]
 
             loss = criterion(sent_scores, labels)
             loss = (loss * out_cls_mask.float()).sum()
@@ -124,8 +129,16 @@ def compose_model():
 
 
 def load_data(dataset_path, batch_size):
-    train = pq.read_pandas(os.path.join(dataset_path, 'train.parquet')).to_pandas()
-    val = pq.read_pandas(os.path.join(dataset_path, 'val.parquet')).to_pandas()
+    train = pd.read_json(
+        os.path.join(dataset_path, 'train.jsonl'),
+        lines=True,
+        orient='records',
+    )
+    val = pd.read_json(
+        os.path.join(dataset_path, 'val.jsonl'),
+        lines=True,
+        orient='records',
+    )
 
     train_iterator = DataLoader(
         SentencesDataset(train.values),
@@ -208,7 +221,7 @@ def main():
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=12,
+        default=4,
     )
 
     args = parser.parse_args()
