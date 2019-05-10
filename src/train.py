@@ -8,6 +8,7 @@ import time
 import argparse
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 import torch
 import torch.nn as nn
@@ -19,9 +20,6 @@ from tqdm import tqdm
 from nnet import Summarizer
 from nnet.meters import AverageMeter
 from nnet.dataset import SentencesDataset
-
-import torch.multiprocessing
-torch.multiprocessing.set_sharing_strategy('file_system')
 
 MODEL_PATH = 'summarizer_model.pt'
 
@@ -126,37 +124,11 @@ def compose_model():
 
 
 def load_data(dataset_path, batch_size):
-    train_text = pd.read_json(
-        os.path.join(dataset_path, 'train_text.jsonl'),
-        lines=True,
-        orient='records',
-    )
-    train_oracle = pd.read_json(
-        os.path.join(dataset_path, 'train_oracle.jsonl'),
-        lines=True,
-        orient='records',
-    )
-
-    val_text = pd.read_json(
-        os.path.join(dataset_path, 'val_text.jsonl'),
-        lines=True,
-        orient='records',
-    )
-    val_oracle = pd.read_json(
-        os.path.join(dataset_path, 'val_oracle.jsonl'),
-        lines=True,
-        orient='records',
-    )
-
-    train_text, train_oracle = train_text.head(1000), train_oracle.head(1000)
-    val_text, val_oracle = val_text.head(1000), val_oracle.head(1000)
+    train = pq.read_pandas(os.path.join(dataset_path, 'train.parquet')).to_pandas()
+    val = pq.read_pandas(os.path.join(dataset_path, 'val.parquet')).to_pandas()
 
     train_iterator = DataLoader(
-        SentencesDataset(
-            train_text['abstract_sentences'].tolist(),
-            train_text['article_sentences'].tolist(),
-            train_oracle['selected_sentences_ids'].tolist(),
-        ),
+        SentencesDataset(train.values),
         batch_size=batch_size,
         shuffle=False,
         num_workers=12,
@@ -164,11 +136,7 @@ def load_data(dataset_path, batch_size):
     )
 
     val_iterator = DataLoader(
-        SentencesDataset(
-            val_text['abstract_sentences'].tolist(),
-            val_text['article_sentences'].tolist(),
-            val_oracle['selected_sentences_ids'].tolist(),
-        ),
+        SentencesDataset(val.values),
         batch_size=batch_size,
         shuffle=False,
         num_workers=4,
@@ -245,7 +213,7 @@ def main():
 
     args = parser.parse_args()
 
-    dataset = '../train_data'
+    dataset = '../data/ready'
     train(
         rel_path(dataset),
         args.resume,
