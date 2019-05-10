@@ -44,14 +44,17 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-def train_epoch(model, iterator, optimizer, criterion):
+def train_epoch(model, iterator, optimizer, criterion, epoch_steps=None):
 
     loss_meter = AverageMeter(int(len(iterator) / 10))
     model.train()
 
     epoch_loss = 0
 
-    with tqdm(total=len(iterator)) as tq:
+    num_steps = epoch_steps or len(iterator)
+    steps_completed = 0
+
+    with tqdm(total=num_steps) as tq:
         tq.set_description('Train')
 
         for batch in iterator:
@@ -80,18 +83,24 @@ def train_epoch(model, iterator, optimizer, criterion):
             tq.update()
 
             epoch_loss += loss.item()
+            steps_completed += 1
+            if steps_completed >= num_steps:
+                break
 
-    return epoch_loss / len(iterator)
+    return epoch_loss / steps_completed
 
 
-def evaluate(model, iterator, criterion):
+def evaluate(model, iterator, criterion, epoch_steps=None):
 
     model.eval()
     loss_meter = AverageMeter(int(len(iterator) / 10))
 
     epoch_loss = 0
 
-    with tqdm(total=len(iterator)) as tq:
+    num_steps = epoch_steps or len(iterator)
+    steps_completed = 0
+
+    with tqdm(total=num_steps) as tq:
         tq.set_description('Validation')
 
         with torch.no_grad():
@@ -114,7 +123,11 @@ def evaluate(model, iterator, criterion):
                 tq.set_postfix(loss='{:.3f}'.format(loss_meter.mavg), )
                 tq.update()
 
-    return epoch_loss / len(iterator)
+                steps_completed += 1
+                if steps_completed >= num_steps:
+                    break
+
+    return epoch_loss / steps_completed
 
 
 def compose_model():
@@ -138,7 +151,7 @@ def load_data(dataset_path, batch_size):
     train_iterator = DataLoader(
         SentencesDataset(train.values),
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=True,
         num_workers=12,
         pin_memory=True,
     )
@@ -154,7 +167,7 @@ def load_data(dataset_path, batch_size):
     return train_iterator, val_iterator
 
 
-def train(dataset_path, resume, lr, batch_size):
+def train(dataset_path, resume, lr, batch_size, epoch_steps=1000):
 
     train_iterator, val_iterator = load_data(dataset_path, batch_size)
 
@@ -172,8 +185,8 @@ def train(dataset_path, resume, lr, batch_size):
 
         start_time = time.time()
 
-        train_loss = train_epoch(model, train_iterator, optimizer, criterion)
-        val_loss = evaluate(model, val_iterator, criterion)
+        train_loss = train_epoch(model, train_iterator, optimizer, criterion, epoch_steps)
+        val_loss = evaluate(model, val_iterator, criterion, epoch_steps)
 
         end_time = time.time()
 
