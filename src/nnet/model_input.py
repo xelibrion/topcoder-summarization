@@ -1,3 +1,4 @@
+import numpy as np
 from typing import List
 
 from pytorch_pretrained_bert import BertTokenizer
@@ -26,44 +27,44 @@ class InputProcessor():
         if not src:
             return None
 
-        original_src_txt = [' '.join(s) for s in src]
+        orig_sentences = np.array([' '.join(s) for s in src])
 
-        labels = [0] * len(src)
-        for l in oracle_ids:
-            labels[l] = 1
+        labels = np.zeros(len(src))
+        labels[oracle_ids] = 1
 
-        idxs = [i for i, s in enumerate(src) if len(s) > self.min_src_ntokens]
+        idx_long_enough = [i for i, s in enumerate(src) if len(s) > self.min_src_ntokens]
 
-        src = [src[i][:self.max_src_ntokens] for i in idxs]
-        labels = [labels[i] for i in idxs]
-        src = src[:self.max_nsents]
+        src_filtered = [src[i][:self.max_src_ntokens] for i in idx_long_enough]
+        labels = labels[idx_long_enough]
+        src_filtered = src_filtered[:self.max_nsents]
         labels = labels[:self.max_nsents]
 
         if len(src) < self.min_nsents:
             return None
-        if not labels:
+        if not np.any(labels):
             return None
 
-        src_txt = [' '.join(sent) for sent in src]
-        # text = [' '.join(ex['src_txt'][i].split()[:self.args.max_src_ntokens]) for i in idxs]
-        # text = [_clean(t) for t in text]
-        text = ' [SEP] [CLS] '.join(src_txt)
-        src_subtokens = self.tokenizer.tokenize(text)
-        src_subtokens = src_subtokens[:510]
-        src_subtokens = ['[CLS]'] + src_subtokens + ['[SEP]']
+        src_filtered_txt = [' '.join(sent) for sent in src]
+        text = ' [SEP] [CLS] '.join(src_filtered_txt)
+        src_tokens = self.tokenizer.tokenize(text)
 
-        src_subtoken_idxs = self.tokenizer.convert_tokens_to_ids(src_subtokens)
-        _segs = [-1] + [i for i, t in enumerate(src_subtoken_idxs) if t == self.sep_vid]
-        segs = [_segs[i] - _segs[i - 1] for i in range(1, len(_segs))]
-        segments_ids = []
-        for i, s in enumerate(segs):
-            if i % 2 == 0:
-                segments_ids += s * [0]
-            else:
-                segments_ids += s * [1]
-        cls_ids = [i for i, t in enumerate(src_subtoken_idxs) if t == self.cls_vid]
+        src_tokens = src_tokens[:510]
+        src_tokens = ['[CLS]'] + src_tokens + ['[SEP]']
+
+        src_token_ids = self.tokenizer.convert_tokens_to_ids(src_tokens)
+        src_token_ids = np.array(src_token_ids)
+
+        sep_ids = np.where(src_token_ids == self.sep_vid)[0]
+        cls_ids = np.where(src_token_ids == self.cls_vid)[0]
+
+        segments = np.zeros_like(src_token_ids)
+        segment_lo = np.array([-1] + sep_ids.tolist()) + 1
+        for idx, (lo, hi) in enumerate(zip(segment_lo, sep_ids)):
+            if idx % 2 != 0:
+                np.put(segments, range(lo, hi + 1), 1)
+
         labels = labels[:len(cls_ids)]
 
         tgt_txt = '<q>'.join([' '.join(tt) for tt in tgt])
-        src_txt = [original_src_txt[i] for i in idxs]
-        return src_subtoken_idxs, labels, segments_ids, cls_ids, src_txt, tgt_txt
+        src_txt = orig_sentences[idx_long_enough]
+        return src_token_ids, labels, segments, cls_ids, src_txt, tgt_txt
