@@ -1,12 +1,13 @@
 import os
-import argparse
 import re
 import itertools
 from multiprocessing import Pool
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
-import spacy
+
+import pyarrow.parquet as pq
 
 
 def _get_ngrams(n, text):
@@ -136,27 +137,22 @@ def greedy_selection(doc_sent_list, abstract_sent_list, summary_size):
 
 
 def perform_selection(input_tuple):
-    article_id, abstract_sents, article_sents = input_tuple
-    abstract_sents_tokens = [[t.text for t in nlp(s)] for s in abstract_sents]
-    article_sents_tokens = [[t.text for t in nlp(s)] for s in article_sents]
-    selected_sentences_ids = greedy_selection(
-        article_sents_tokens,
-        abstract_sents_tokens,
-        3,
-    )
+    def _ndarray_to_list(array):
+        assert isinstance(array, np.ndarray)
+        return [x.tolist() for x in array]
+
+    article_id, abstract_tokens, article_tokens = input_tuple
+    abstract_tokens = _ndarray_to_list(abstract_tokens)
+    article_tokens = _ndarray_to_list(article_tokens)
+    selected_sentences_ids = greedy_selection(article_tokens, abstract_tokens, 3)
     return article_id, selected_sentences_ids
-
-
-def initializer():
-    global nlp
-    nlp = spacy.load('en_core_web_lg')
 
 
 def process(total_items, article_id, abstracts, articles):
     items_processed = []
 
     with tqdm(total=total_items) as tq:
-        with Pool(os.cpu_count(), initializer=initializer) as pool:
+        with Pool(os.cpu_count()) as pool:
             args = list(zip(article_id, abstracts, articles))
             for result in pool.imap(perform_selection, args):
                 tq.update()
@@ -175,25 +171,20 @@ def rel_path(path, anchor=None):
     return os.path.abspath(os.path.join(anchor_dir, path))
 
 
-def main():
-    parser = argparse.ArgumentParser(description="")
-    parser.add_argument(
-        '--input_path',
-        type=str,
-        default='../data/train_sentences.jsonl',
-    )
-    args = parser.parse_args()
+def get_file(tokenized_dir):
+    files = os.listdir(tokenized_dir)
+    return os.path.join(tokenized_dir, [x for x in files if x.endswith('.json')][0])
 
-    df = pd.read_json(
-        rel_path('../data/train_sentences.jsonl'),
-        lines=True,
-        orient='records',
-    )
+
+def main():
+    pq_df = pq.ParquetDataset(rel_path('../data/tokenized_p'))
+    df = pq_df.read().to_pandas()
+    print(df.info())
     items_processed = process(
         df.shape[0],
         df['article_id'],
-        df['abstract_sentences'],
-        df['article_sentences'],
+        df['abstract_tokens'].values,
+        df['article_tokens'].values,
     )
     print(items_processed[:10])
 

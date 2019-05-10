@@ -91,7 +91,8 @@ def run_task(standford_models_jar):
                      .orderBy('article_id')
     print(df.columns)
 
-    df.repartition(1).write.json(rel_path('../data/tokenized'))
+    # df.repartition(1).write.json(rel_path('../data/tokenized'))
+    df.repartition(5).write.parquet(rel_path('../data/tokenized_p'))
 
 
 def main():

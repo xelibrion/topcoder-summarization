@@ -66,9 +66,6 @@ def train_epoch(model, iterator, optimizer, criterion):
             output = model(input_ids, attention_mask, segments_ids, cls_ids, cls_mask)
             sent_scores, out_cls_mask = output
 
-            # trg = [(trg sent len - 1) * batch size]
-            # output = [(trg sent len - 1) * batch size, output dim]
-
             loss = criterion(sent_scores, labels)
             loss = (loss * out_cls_mask.float()).sum()
             (loss / loss.numel()).backward()
