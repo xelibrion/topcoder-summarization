@@ -73,10 +73,6 @@ def train_epoch(model, iterator, optimizer, criterion):
             loss = (loss * out_cls_mask.float()).sum()
             (loss / loss.numel()).backward()
 
-            # loss = self.loss(sent_scores, labels.float())
-            # loss = (loss*mask.float()).sum()
-            # (loss/loss.numel()).backward()
-
             optimizer.step()
 
             loss_meter.update(loss.item())
@@ -91,6 +87,7 @@ def train_epoch(model, iterator, optimizer, criterion):
 def evaluate(model, iterator, criterion):
 
     model.eval()
+    loss_meter = AverageMeter(int(len(iterator) / 10))
 
     epoch_loss = 0
 
@@ -100,23 +97,21 @@ def evaluate(model, iterator, criterion):
         with torch.no_grad():
 
             for batch in iterator:
-                src, text_lengths = batch.text
-                trg = src
+                for idx, t in enumerate(batch):
+                    batch[idx] = t.to(device)
 
-                output = model(src, text_lengths, trg, 0)  # turn off teacher forcing
+                input_ids, attention_mask, segments_ids, cls_ids, cls_mask, labels = batch
+                # labels = [batch_size x 512]
 
-                # trg = [trg sent len, batch size]
-                # output = [trg sent len, batch size, output dim]
+                output = model(input_ids, attention_mask, segments_ids, cls_ids, cls_mask)
+                sent_scores, out_cls_mask = output
 
-                output = output[1:].view(-1, output.shape[-1])
-                trg = trg[1:].view(-1)
-
-                # trg = [(trg sent len - 1) * batch size]
-                # output = [(trg sent len - 1) * batch size, output dim]
-
-                loss = criterion(output, trg)
+                loss = criterion(sent_scores, labels)
+                loss = (loss * out_cls_mask.float()).sum()
 
                 epoch_loss += loss.item()
+                loss_meter.update(loss.item())
+                tq.set_postfix(loss='{:.3f}'.format(loss_meter.mavg), )
                 tq.update()
 
     return epoch_loss / len(iterator)
@@ -189,8 +184,8 @@ def train(dataset_path, resume, lr, batch_size):
             torch.save(model.state_dict(), MODEL_PATH)
 
         print(f'\nEpoch: {epoch+1:02} | Time: {epoch_mins}m {epoch_secs}s')
-        print(f'\tTrain Loss: {train_loss:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
-        print(f'\t Val. Loss: {val_loss:.3f} |  Val. PPL: {math.exp(val_loss):7.3f}\n')
+        print(f'\tTrain Loss: {train_loss:.3f}')
+        print(f'\t Val. Loss: {val_loss:.3f}\n')
 
 
 def rel_path(path, anchor=None):
