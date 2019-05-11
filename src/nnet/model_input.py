@@ -15,7 +15,7 @@ class InputProcessor():
         self.min_src_ntokens = 5
         self.max_src_ntokens = 200
         self.min_nsents = 3
-        self.max_nsents = 100
+        self.max_nsents = 6
 
     def preprocess(
             self,
@@ -44,7 +44,7 @@ class InputProcessor():
         if not np.any(labels):
             return None
 
-        src_filtered_txt = [' '.join(sent) for sent in src]
+        src_filtered_txt = [' '.join(sent) for sent in src_filtered]
         text = ' [SEP] [CLS] '.join(src_filtered_txt)
         src_tokens = self.tokenizer.tokenize(text)
 

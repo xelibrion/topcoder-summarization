@@ -55,11 +55,29 @@ def process(total_items, abstract_tokens, article_tokens, oracle_ids, desc):
             args = list(zip(abstract_tokens, article_tokens, oracle_ids))
             for result in pool.imap(run_preprocessing, args):
                 tq.update()
-                items_processed.append(result)
+                if result:
+                    items_processed.append(result)
 
             pool.close()
             pool.join()
     return items_processed
+
+
+def display_stats(df):
+    df_info = df.copy()
+    df_info.columns = [
+        'src_token_ids',
+        'labels',
+        'segments',
+        'cls_ids',
+        'src_txt',
+        'tgt_txt',
+    ]
+    df_info.drop(columns=['src_txt', 'tgt_txt'], inplace=True)
+    for col in df_info.columns[:4]:
+        df_info[col] = df_info[col].apply(len)
+
+    print(df_info.describe())
 
 
 def main():
@@ -86,6 +104,7 @@ def main():
         )
         r_df = pd.DataFrame(result)
         r_df.dropna(inplace=True)
+        display_stats(r_df)
         r_df.to_json(
             rel_path(f'../data/ready/{label.lower()}.jsonl'),
             lines=True,
