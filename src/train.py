@@ -11,13 +11,13 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from pytorch_pretrained_bert.optimization import WarmupLinearSchedule
+from pytorch_pretrained_bert.optimization import WarmupLinearSchedule, BertAdam
 from apex.optimizers import FP16_Optimizer
 from apex.optimizers import FusedAdam
 
 from nnet import Summarizer
 from nnet.dataset import SentencesDataset
-from training_loop import TrainigLoop, LearningRateScheduler
+from training_loop import TrainigLoop, LearningRateScheduler, DummyLRateScheduler
 
 MODEL_PATH = 'summarizer_model.pt'
 
@@ -30,12 +30,11 @@ torch.backends.cudnn.deterministic = True
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def build_optimizer(
-        model_params,
-        learning_rate,
-        warmup_proportion,
-        total_train_steps,
-):
+def build_optimizer(model_params,
+                    learning_rate,
+                    warmup_proportion,
+                    total_train_steps,
+                    use_fp16=False):
     # hack to remove pooler, which is not used
     # thus it produce None grad that break apex
     param_optimizer = [n for n in model_params if 'pooler' not in n[0]]
@@ -51,17 +50,27 @@ def build_optimizer(
         0.0
     }]
 
-    optimizer = FusedAdam(
+    if use_fp16:
+        optimizer = FusedAdam(
+            optimizer_grouped_parameters,
+            lr=learning_rate,
+            bias_correction=False,
+            max_grad_norm=1.0,
+        )
+        optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
+        warmup_linear = WarmupLinearSchedule(
+            warmup=warmup_proportion,
+            t_total=total_train_steps,
+        )
+        return optimizer, LearningRateScheduler(warmup_linear, learning_rate)
+
+    optimizer = BertAdam(
         optimizer_grouped_parameters,
         lr=learning_rate,
-        bias_correction=False,
-        max_grad_norm=1.0,
+        warmup=warmup_proportion,
+        t_total=total_train_steps,
     )
-    optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
-    warmup_linear = WarmupLinearSchedule(warmup=warmup_proportion,
-                                         t_total=total_train_steps)
-
-    return optimizer, warmup_linear
+    return optimizer, DummyLRateScheduler()
 
 
 def count_parameters(model):
@@ -124,17 +133,18 @@ def train(dataset_path, resume, lr, batch_size, epochs=50, steps_per_epoch=1000)
     if resume:
         model.load_state_dict(torch.load(MODEL_PATH))
 
-    optimizer, schedule = build_optimizer(
+    optimizer, lr_scheduler = build_optimizer(
         list(model.named_parameters()),
         lr,
-        0.1,
+        0.01,
         epochs * steps_per_epoch,
     )
 
     loop = TrainigLoop(
         model,
         optimizer,
-        lr_scheduler=LearningRateScheduler(schedule, lr),
+        lr_scheduler=lr_scheduler,
+        epoch_steps=steps_per_epoch,
         callbacks={'on_best_val_loss': save_checkpoint},
     )
     loop.run(train_iterator, val_iterator, criterion)

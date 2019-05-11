@@ -16,6 +16,16 @@ def epoch_time(start_time, end_time):
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
+class DummyLRateScheduler(object):
+    """
+    :param optimizer:  optimizer to tweak learning rate of
+    :param steps_completed: steps completed so far across all iterations
+    """
+
+    def update(self, optimizer, steps_completed):
+        pass
+
+
 class LearningRateScheduler(object):
     """
     :param schedule:  schedule (e.g. WarmupLinearSchedule) to get learning rate from
