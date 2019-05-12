@@ -15,7 +15,7 @@ class InputProcessor():
         self.min_src_ntokens = 5
         self.max_src_ntokens = 200
         self.min_nsents = 3
-        self.max_nsents = 6
+        self.max_nsents = 100
 
     def preprocess(
             self,
