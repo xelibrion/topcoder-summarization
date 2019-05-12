@@ -83,7 +83,7 @@ def compose_model():
     return model.to(device), nn.BCELoss(reduction='none')
 
 
-def load_data(dataset_path, batch_size):
+def load_data(dataset_path, batch_size, train_steps, eval_steps):
     train = pd.read_json(
         os.path.join(dataset_path, 'train.jsonl'),
         lines=True,
@@ -96,7 +96,7 @@ def load_data(dataset_path, batch_size):
     )
 
     train_iterator = DataLoader(
-        SentencesDataset(train.values),
+        SentencesDataset(train.values, train_steps * batch_size),
         batch_size=batch_size,
         shuffle=True,
         num_workers=12,
@@ -104,7 +104,7 @@ def load_data(dataset_path, batch_size):
     )
 
     val_iterator = DataLoader(
-        SentencesDataset(val.values),
+        SentencesDataset(val.values, eval_steps * batch_size),
         batch_size=batch_size,
         shuffle=False,
         num_workers=4,
@@ -126,37 +126,52 @@ def save_checkpoint(model):
     torch.save(model.state_dict(), MODEL_PATH)
 
 
-def train(dataset_path, resume, lr, batch_size, epochs=50, steps_per_epoch=1000):
-    train_iterator, val_iterator = load_data(dataset_path, batch_size)
+def train(
+        dataset_path,
+        resume,
+        lr,
+        batch_size,
+        epochs=50,
+        train_steps=2000,
+        eval_steps=500,
+):
+    train_iterator, val_iterator = load_data(
+        dataset_path,
+        batch_size,
+        train_steps=train_steps,
+        eval_steps=eval_steps,
+    )
 
-    model, criterion = compose_model()
+    model, _ = compose_model()
     if resume:
         model.load_state_dict(torch.load(MODEL_PATH))
 
+    model_params = list(model.named_parameters())
+    # for _, p in model_params[:-4]:
+    #     p.requires_grad = False
+
+    # params_to_train = model_params[-4:]
+    params_to_train = model_params
+
+    print(f'The model has {count_parameters(model):,} trainable parameters')
     optimizer, lr_scheduler = build_optimizer(
-        list(model.named_parameters()),
+        params_to_train,
         lr,
         0.01,
-        epochs * steps_per_epoch,
+        epochs * train_steps,
     )
 
     loop = TrainigLoop(
         model,
         optimizer,
         lr_scheduler=lr_scheduler,
-        epoch_steps=steps_per_epoch,
         callbacks={'on_best_val_loss': save_checkpoint},
     )
-    loop.run(train_iterator, val_iterator, criterion)
+    loop.run(train_iterator, val_iterator, epochs)
 
 
 def main():
     parser = argparse.ArgumentParser(description="")
-    parser.add_argument(
-        '--sample',
-        action='store_true',
-        default=False,
-    )
     parser.add_argument(
         '--resume',
         action='store_true',
@@ -165,15 +180,16 @@ def main():
     parser.add_argument(
         '--lr',
         type=float,
-        default=5e-5,
+        default=1e-5,
     )
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=4,
+        default=7,
     )
 
     args = parser.parse_args()
+    print(args)
 
     dataset = '../data/ready'
     train(

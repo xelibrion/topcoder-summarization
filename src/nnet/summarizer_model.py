@@ -25,7 +25,7 @@ class Summarizer(nn.Module):
         )
         indexer = torch.arange(encoded_input.size(0)).unsqueeze(1)
         sents_vec = encoded_input[indexer, cls_ids]
-        sents_vec = sents_vec * cls_mask.float().unsqueeze(2)
+        # sents_vec = sents_vec * cls_mask.float().unsqueeze(2)
         sent_scores = self.decoder(sents_vec, cls_mask).squeeze(-1)
         return sent_scores, cls_mask
 
@@ -36,7 +36,8 @@ class Classifier(nn.Module):
         self.linear = nn.Linear(hidden_size, 1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x, mask_cls):
+    def forward(self, x, cls_mask):
         h = self.linear(x).squeeze(-1)
-        sent_scores = self.sigmoid(h) * mask_cls.float()
+        sent_scores = self.sigmoid(h)
+        # sent_scores = self.sigmoid(h) * cls_mask.float()
         return sent_scores
