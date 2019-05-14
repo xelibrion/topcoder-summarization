@@ -35,19 +35,37 @@ def build_optimizer(model_params,
                     warmup_proportion,
                     total_train_steps,
                     use_fp16=False):
+    def pop_layers(params, name_filter):
+        layer_idx = [
+            idx for idx, (n, _) in enumerate(params)
+            if not any(nf in n for nf in name_filter)
+        ]
+        layers = []
+        for idx in layer_idx:
+            _, p = params.pop(idx)
+            layers.append(p)
+
+        return params, layers
+
     # hack to remove pooler, which is not used
     # thus it produce None grad that break apex
     param_optimizer = [n for n in model_params if 'pooler' not in n[0]]
 
-    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+    params, custom_layers = pop_layers(param_optimizer, ['decoder'])
+    params, no_decay_layers = pop_layers(params,
+                                         ['bias', 'LayerNorm.bias', 'LayerNorm.weight'])
+    the_rest_layers = [p for _, p in params]
+
     optimizer_grouped_parameters = [{
-        'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
-        'weight_decay':
-        0.01
+        'params': custom_layers,
+        'weight_decay': 0.01,
+        'lr': 1e-3
     }, {
-        'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)],
-        'weight_decay':
-        0.0
+        'params': the_rest_layers,
+        'weight_decay': 0.01
+    }, {
+        'params': no_decay_layers,
+        'weight_decay': 0.0
     }]
 
     if use_fp16:
