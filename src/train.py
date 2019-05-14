@@ -36,16 +36,13 @@ def build_optimizer(model_params,
                     total_train_steps,
                     use_fp16=False):
     def pop_layers(params, name_filter):
-        layer_idx = [
-            idx for idx, (n, _) in enumerate(params)
-            if not any(nf in n for nf in name_filter)
-        ]
+        params_dict = dict(params)
+        layer_names = [n for n, _ in params if not any(nf in n for nf in name_filter)]
         layers = []
-        for idx in layer_idx:
-            _, p = params.pop(idx)
-            layers.append(p)
+        for name in layer_names:
+            layers.append(params_dict.pop(name))
 
-        return params, layers
+        return list(params_dict.items()), layers
 
     # hack to remove pooler, which is not used
     # thus it produce None grad that break apex
